@@ -2,19 +2,15 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as strings from 'vs/base/common/strings';
-import { TPromise } from 'vs/base/common/winjs.base';
 import { EditorInput, EditorModel, ITextEditorModel } from 'vs/workbench/common/editor';
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import { IReference, IDisposable, dispose } from 'vs/base/common/lifecycle';
 import { telemetryURIDescriptor } from 'vs/platform/telemetry/common/telemetryUtils';
 import { ITextModelService } from 'vs/editor/common/services/resolverService';
-import { marked } from 'vs/base/common/marked/marked';
+import * as marked from 'vs/base/common/marked/marked';
 import { Schemas } from 'vs/base/common/network';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { ILifecycleService, ShutdownReason } from 'vs/platform/lifecycle/common/lifecycle';
 import { IHashService } from 'vs/workbench/services/hash/common/hashService';
 
 export class WalkThroughModel extends EditorModel {
@@ -54,21 +50,17 @@ export class WalkThroughInput extends EditorInput {
 
 	private disposables: IDisposable[] = [];
 
-	private promise: TPromise<WalkThroughModel>;
+	private promise: Promise<WalkThroughModel> | null;
 
-	private resolveTime: number;
 	private maxTopScroll = 0;
 	private maxBottomScroll = 0;
 
 	constructor(
 		private options: WalkThroughInputOptions,
-		@ITelemetryService private telemetryService: ITelemetryService,
-		@ILifecycleService lifecycleService: ILifecycleService,
-		@ITextModelService private textModelResolverService: ITextModelService,
-		@IHashService private hashService: IHashService
+		@ITextModelService private readonly textModelResolverService: ITextModelService,
+		@IHashService private readonly hashService: IHashService
 	) {
 		super();
-		this.disposables.push(lifecycleService.onShutdown(e => this.disposeTelemetry(e)));
 	}
 
 	getResource(): URI {
@@ -108,16 +100,15 @@ export class WalkThroughInput extends EditorInput {
 		return this.options.onReady;
 	}
 
-	resolve(refresh?: boolean): TPromise<WalkThroughModel> {
+	resolve(): Promise<WalkThroughModel> {
 		if (!this.promise) {
-			this.resolveTelemetry();
 			this.promise = this.textModelResolverService.createModelReference(this.options.resource)
 				.then(ref => {
 					if (strings.endsWith(this.getResource().path, '.html')) {
 						return new WalkThroughModel(ref, []);
 					}
 
-					const snippets: TPromise<IReference<ITextEditorModel>>[] = [];
+					const snippets: Promise<IReference<ITextEditorModel>>[] = [];
 					let i = 0;
 					const renderer = new marked.Renderer();
 					renderer.code = (code, lang) => {
@@ -129,7 +120,7 @@ export class WalkThroughInput extends EditorInput {
 					const markdown = ref.object.textEditorModel.getLinesContent().join('\n');
 					marked(markdown, { renderer });
 
-					return TPromise.join(snippets)
+					return Promise.all(snippets)
 						.then(refs => new WalkThroughModel(ref, refs));
 				});
 		}
@@ -160,49 +151,11 @@ export class WalkThroughInput extends EditorInput {
 			this.promise = null;
 		}
 
-		this.disposeTelemetry();
-
 		super.dispose();
 	}
 
 	public relativeScrollPosition(topScroll: number, bottomScroll: number) {
 		this.maxTopScroll = Math.max(this.maxTopScroll, topScroll);
 		this.maxBottomScroll = Math.max(this.maxBottomScroll, bottomScroll);
-	}
-
-	private resolveTelemetry() {
-		if (!this.resolveTime) {
-			this.resolveTime = Date.now();
-			/* __GDPR__
-				"resolvingInput" : {
-					"target" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
-				}
-			*/
-			this.telemetryService.publicLog('resolvingInput', {
-				target: this.getTelemetryFrom(),
-			});
-		}
-	}
-
-	private disposeTelemetry(reason?: ShutdownReason) {
-		if (this.resolveTime) {
-			/* __GDPR__
-				"disposingInput" : {
-					"target" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
-					"timeSpent": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth" },
-					"reason": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
-					"maxTopScroll": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
-					"maxBottomScroll": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
-				}
-			*/
-			this.telemetryService.publicLog('disposingInput', {
-				target: this.getTelemetryFrom(),
-				timeSpent: (Date.now() - this.resolveTime) / 60,
-				reason: reason ? ShutdownReason[reason] : 'DISPOSE',
-				maxTopScroll: this.maxTopScroll,
-				maxBottomScroll: this.maxBottomScroll,
-			});
-			this.resolveTime = null;
-		}
 	}
 }

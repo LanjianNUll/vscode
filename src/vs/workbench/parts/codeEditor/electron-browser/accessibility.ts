@@ -3,43 +3,40 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
 import 'vs/css!./accessibility';
 import * as nls from 'vs/nls';
+import * as dom from 'vs/base/browser/dom';
+import { FastDomNode, createFastDomNode } from 'vs/base/browser/fastDomNode';
+import { renderFormattedText } from 'vs/base/browser/htmlContentRenderer';
+import { alert } from 'vs/base/browser/ui/aria/aria';
+import { Widget } from 'vs/base/browser/ui/widget';
 import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
 import { Disposable } from 'vs/base/common/lifecycle';
-import * as strings from 'vs/base/common/strings';
-import * as dom from 'vs/base/browser/dom';
-import { renderFormattedText } from 'vs/base/browser/htmlContentRenderer';
-import { FastDomNode, createFastDomNode } from 'vs/base/browser/fastDomNode';
-import { Widget } from 'vs/base/browser/ui/widget';
-import { ServicesAccessor, IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
-import { RawContextKey, IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { ICommonCodeEditor, IEditorContribution } from 'vs/editor/common/editorCommon';
-import { EditorContextKeys } from 'vs/editor/common/editorContextKeys';
-import { editorAction, CommonEditorRegistry, EditorAction, EditorCommand } from 'vs/editor/common/editorCommonExtensions';
-import { ICodeEditor, IOverlayWidget, IOverlayWidgetPosition } from 'vs/editor/browser/editorBrowser';
-import { editorContribution } from 'vs/editor/browser/editorBrowserExtensions';
-import { ToggleTabFocusModeAction } from 'vs/editor/contrib/toggleTabFocusMode/common/toggleTabFocusMode';
-import { registerThemingParticipant } from 'vs/platform/theme/common/themeService';
-import { editorWidgetBackground, widgetShadow, contrastBorder } from 'vs/platform/theme/common/colorRegistry';
-import { IConfigurationService, ConfigurationTarget } from 'vs/platform/configuration/common/configuration';
-import * as editorOptions from 'vs/editor/common/config/editorOptions';
 import * as platform from 'vs/base/common/platform';
-import { alert } from 'vs/base/browser/ui/aria/aria';
+import * as strings from 'vs/base/common/strings';
+import { URI } from 'vs/base/common/uri';
+import { ICodeEditor, IOverlayWidget, IOverlayWidgetPosition } from 'vs/editor/browser/editorBrowser';
+import { EditorAction, EditorCommand, registerEditorAction, registerEditorCommand, registerEditorContribution } from 'vs/editor/browser/editorExtensions';
+import * as editorOptions from 'vs/editor/common/config/editorOptions';
+import { IEditorContribution } from 'vs/editor/common/editorCommon';
+import { EditorContextKeys } from 'vs/editor/common/editorContextKeys';
+import { ToggleTabFocusModeAction } from 'vs/editor/contrib/toggleTabFocusMode/toggleTabFocusMode';
+import { ConfigurationTarget, IConfigurationService } from 'vs/platform/configuration/common/configuration';
+import { IContextKey, IContextKeyService, RawContextKey } from 'vs/platform/contextkey/common/contextkey';
+import { IInstantiationService, ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
+import { IKeybindingService } from 'vs/platform/keybinding/common/keybinding';
+import { KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
 import { IOpenerService } from 'vs/platform/opener/common/opener';
-import URI from 'vs/base/common/uri';
+import { contrastBorder, editorWidgetBackground, widgetShadow } from 'vs/platform/theme/common/colorRegistry';
+import { registerThemingParticipant } from 'vs/platform/theme/common/themeService';
 
 const CONTEXT_ACCESSIBILITY_WIDGET_VISIBLE = new RawContextKey<boolean>('accessibilityHelpWidgetVisible', false);
 
-@editorContribution
 class AccessibilityHelpController extends Disposable implements IEditorContribution {
 
-	private static ID = 'editor.contrib.accessibilityHelpController';
+	private static readonly ID = 'editor.contrib.accessibilityHelpController';
 
-	public static get(editor: ICommonCodeEditor): AccessibilityHelpController {
+	public static get(editor: ICodeEditor): AccessibilityHelpController {
 		return editor.getContribution<AccessibilityHelpController>(AccessibilityHelpController.ID);
 	}
 
@@ -71,9 +68,9 @@ class AccessibilityHelpController extends Disposable implements IEditorContribut
 
 class AccessibilityHelpWidget extends Widget implements IOverlayWidget {
 
-	private static ID = 'editor.contrib.accessibilityHelpWidget';
-	private static WIDTH = 500;
-	private static HEIGHT = 300;
+	private static readonly ID = 'editor.contrib.accessibilityHelpWidget';
+	private static readonly WIDTH = 500;
+	private static readonly HEIGHT = 300;
 
 	private _editor: ICodeEditor;
 	private _domNode: FastDomNode<HTMLElement>;
@@ -83,10 +80,10 @@ class AccessibilityHelpWidget extends Widget implements IOverlayWidget {
 
 	constructor(
 		editor: ICodeEditor,
-		@IContextKeyService private _contextKeyService: IContextKeyService,
-		@IKeybindingService private _keybindingService: IKeybindingService,
-		@IConfigurationService private _configurationService: IConfigurationService,
-		@IOpenerService private _openerService: IOpenerService
+		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
+		@IKeybindingService private readonly _keybindingService: IKeybindingService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IOpenerService private readonly _openerService: IOpenerService
 	) {
 		super();
 
@@ -192,7 +189,7 @@ class AccessibilityHelpWidget extends Widget implements IOverlayWidget {
 
 		text += '\n\n' + nls.localize('status', "Status:");
 
-		const configuredValue = this._configurationService.getConfiguration<editorOptions.IEditorOptions>('editor').accessibilitySupport;
+		const configuredValue = this._configurationService.getValue<editorOptions.IEditorOptions>('editor').accessibilitySupport;
 		const actualValue = opts.accessibilitySupport;
 
 		const emergencyTurnOnMessage = (
@@ -277,7 +274,6 @@ class AccessibilityHelpWidget extends Widget implements IOverlayWidget {
 	}
 }
 
-@editorAction
 class ShowAccessibilityHelpAction extends EditorAction {
 
 	constructor() {
@@ -288,12 +284,13 @@ class ShowAccessibilityHelpAction extends EditorAction {
 			precondition: null,
 			kbOpts: {
 				kbExpr: EditorContextKeys.focus,
-				primary: KeyMod.Alt | KeyCode.F1
+				primary: KeyMod.Alt | KeyCode.F1,
+				weight: KeybindingWeight.EditorContrib
 			}
 		});
 	}
 
-	public run(accessor: ServicesAccessor, editor: ICommonCodeEditor): void {
+	public run(accessor: ServicesAccessor, editor: ICodeEditor): void {
 		let controller = AccessibilityHelpController.get(editor);
 		if (controller) {
 			controller.show();
@@ -301,31 +298,34 @@ class ShowAccessibilityHelpAction extends EditorAction {
 	}
 }
 
+registerEditorContribution(AccessibilityHelpController);
+registerEditorAction(ShowAccessibilityHelpAction);
+
 const AccessibilityHelpCommand = EditorCommand.bindToContribution<AccessibilityHelpController>(AccessibilityHelpController.get);
 
-CommonEditorRegistry.registerEditorCommand(new AccessibilityHelpCommand({
+registerEditorCommand(new AccessibilityHelpCommand({
 	id: 'closeAccessibilityHelp',
 	precondition: CONTEXT_ACCESSIBILITY_WIDGET_VISIBLE,
 	handler: x => x.hide(),
 	kbOpts: {
-		weight: CommonEditorRegistry.commandWeight(100),
+		weight: KeybindingWeight.EditorContrib + 100,
 		kbExpr: EditorContextKeys.focus,
 		primary: KeyCode.Escape, secondary: [KeyMod.Shift | KeyCode.Escape]
 	}
 }));
 
 registerThemingParticipant((theme, collector) => {
-	let widgetBackground = theme.getColor(editorWidgetBackground);
+	const widgetBackground = theme.getColor(editorWidgetBackground);
 	if (widgetBackground) {
 		collector.addRule(`.monaco-editor .accessibilityHelpWidget { background-color: ${widgetBackground}; }`);
 	}
 
-	let widgetShadowColor = theme.getColor(widgetShadow);
+	const widgetShadowColor = theme.getColor(widgetShadow);
 	if (widgetShadowColor) {
 		collector.addRule(`.monaco-editor .accessibilityHelpWidget { box-shadow: 0 2px 8px ${widgetShadowColor}; }`);
 	}
 
-	let hcBorder = theme.getColor(contrastBorder);
+	const hcBorder = theme.getColor(contrastBorder);
 	if (hcBorder) {
 		collector.addRule(`.monaco-editor .accessibilityHelpWidget { border: 2px solid ${hcBorder}; }`);
 	}

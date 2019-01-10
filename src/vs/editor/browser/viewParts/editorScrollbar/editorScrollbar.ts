@@ -2,20 +2,18 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as dom from 'vs/base/browser/dom';
-import { ScrollableElementCreationOptions, ScrollableElementChangeOptions } from 'vs/base/browser/ui/scrollbar/scrollableElementOptions';
+import { FastDomNode, createFastDomNode } from 'vs/base/browser/fastDomNode';
+import { IMouseEvent } from 'vs/base/browser/mouseEvent';
 import { IOverviewRulerLayoutInfo, SmoothScrollableElement } from 'vs/base/browser/ui/scrollbar/scrollableElement';
+import { ScrollableElementChangeOptions, ScrollableElementCreationOptions } from 'vs/base/browser/ui/scrollbar/scrollableElementOptions';
+import { PartFingerprint, PartFingerprints, ViewPart } from 'vs/editor/browser/view/viewPart';
 import { INewScrollPosition } from 'vs/editor/common/editorCommon';
-import { ViewPart, PartFingerprint, PartFingerprints } from 'vs/editor/browser/view/viewPart';
+import { RenderingContext, RestrictedRenderingContext } from 'vs/editor/common/view/renderingContext';
 import { ViewContext } from 'vs/editor/common/view/viewContext';
 import * as viewEvents from 'vs/editor/common/view/viewEvents';
-import { RenderingContext, RestrictedRenderingContext } from 'vs/editor/common/view/renderingContext';
-import { FastDomNode, createFastDomNode } from 'vs/base/browser/fastDomNode';
 import { getThemeTypeSelector } from 'vs/platform/theme/common/themeService';
-import { IMouseEvent } from 'vs/base/browser/mouseEvent';
-import { ISimplifiedMouseEvent } from 'vs/base/browser/ui/scrollbar/abstractScrollbar';
 
 export class EditorScrollbar extends ViewPart {
 
@@ -50,6 +48,7 @@ export class EditorScrollbar extends ViewPart {
 			handleMouseWheel: configScrollbarOpts.handleMouseWheel,
 			arrowSize: configScrollbarOpts.arrowSize,
 			mouseWheelScrollSensitivity: configScrollbarOpts.mouseWheelScrollSensitivity,
+			fastScrollSensitivity: configScrollbarOpts.fastScrollSensitivity,
 		};
 
 		this.scrollbar = this._register(new SmoothScrollableElement(linesContent.domNode, scrollbarOptions, this._context.viewLayout.scrollable));
@@ -89,6 +88,7 @@ export class EditorScrollbar extends ViewPart {
 		this._register(dom.addDisposableListener(viewDomNode.domNode, 'scroll', (e: Event) => onBrowserDesperateReveal(viewDomNode.domNode, true, true)));
 		this._register(dom.addDisposableListener(linesContent.domNode, 'scroll', (e: Event) => onBrowserDesperateReveal(linesContent.domNode, true, false)));
 		this._register(dom.addDisposableListener(overflowGuardDomNode.domNode, 'scroll', (e: Event) => onBrowserDesperateReveal(overflowGuardDomNode.domNode, true, false)));
+		this._register(dom.addDisposableListener(this.scrollbarDomNode.domNode, 'scroll', (e: Event) => onBrowserDesperateReveal(this.scrollbarDomNode.domNode, true, false)));
 	}
 
 	public dispose(): void {
@@ -99,7 +99,13 @@ export class EditorScrollbar extends ViewPart {
 		const layoutInfo = this._context.configuration.editor.layoutInfo;
 
 		this.scrollbarDomNode.setLeft(layoutInfo.contentLeft);
-		this.scrollbarDomNode.setWidth(layoutInfo.contentWidth + layoutInfo.minimapWidth);
+
+		const side = this._context.configuration.editor.viewInfo.minimap.side;
+		if (side === 'right') {
+			this.scrollbarDomNode.setWidth(layoutInfo.contentWidth + layoutInfo.minimapWidth);
+		} else {
+			this.scrollbarDomNode.setWidth(layoutInfo.contentWidth);
+		}
 		this.scrollbarDomNode.setHeight(layoutInfo.contentHeight);
 	}
 
@@ -115,10 +121,6 @@ export class EditorScrollbar extends ViewPart {
 		this.scrollbar.delegateVerticalScrollbarMouseDown(browserEvent);
 	}
 
-	public delegateSliderMouseDown(e: ISimplifiedMouseEvent, onDragFinished: () => void): void {
-		this.scrollbar.delegateSliderMouseDown(e, onDragFinished);
-	}
-
 	// --- begin event handlers
 
 	public onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
@@ -126,7 +128,8 @@ export class EditorScrollbar extends ViewPart {
 			const editor = this._context.configuration.editor;
 			let newOpts: ScrollableElementChangeOptions = {
 				handleMouseWheel: editor.viewInfo.scrollbar.handleMouseWheel,
-				mouseWheelScrollSensitivity: editor.viewInfo.scrollbar.mouseWheelScrollSensitivity
+				mouseWheelScrollSensitivity: editor.viewInfo.scrollbar.mouseWheelScrollSensitivity,
+				fastScrollSensitivity: editor.viewInfo.scrollbar.fastScrollSensitivity
 			};
 			this.scrollbar.updateOptions(newOpts);
 		}

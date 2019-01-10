@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { EventEmitter } from 'vs/base/common/eventEmitter';
 import { INextIterator, ArrayIterator } from 'vs/base/common/iterator';
 import { Item } from './treeModel';
 
@@ -11,31 +10,30 @@ export interface IViewItem {
 	model: Item;
 	top: number;
 	height: number;
+	width: number;
 }
 
-export class HeightMap extends EventEmitter {
+export class HeightMap {
 
 	private heightMap: IViewItem[];
 	private indexes: { [item: string]: number; };
 
 	constructor() {
-		super();
-
 		this.heightMap = [];
 		this.indexes = {};
 	}
 
-	public getTotalHeight(): number {
-		var last = this.heightMap[this.heightMap.length - 1];
+	public getContentHeight(): number {
+		let last = this.heightMap[this.heightMap.length - 1];
 		return !last ? 0 : last.top + last.height;
 	}
 
-	public onInsertItems(iterator: INextIterator<Item>, afterItemId: string = null): number {
-		var item: Item;
-		var viewItem: IViewItem;
-		var i: number, j: number;
-		var totalSize: number;
-		var sizeDiff = 0;
+	public onInsertItems(iterator: INextIterator<Item>, afterItemId: string | null = null): number {
+		let item: Item;
+		let viewItem: IViewItem;
+		let i: number, j: number;
+		let totalSize: number;
+		let sizeDiff = 0;
 
 		if (afterItemId === null) {
 			i = 0;
@@ -52,14 +50,13 @@ export class HeightMap extends EventEmitter {
 			totalSize = viewItem.top + viewItem.height;
 		}
 
-		var boundSplice = this.heightMap.splice.bind(this.heightMap, i, 0);
+		let boundSplice = this.heightMap.splice.bind(this.heightMap, i, 0);
 
-		var itemsToInsert: IViewItem[] = [];
+		let itemsToInsert: IViewItem[] = [];
 
 		while (item = iterator.next()) {
 			viewItem = this.createViewItem(item);
 			viewItem.top = totalSize + sizeDiff;
-			this.emit('viewItem:create', { item: viewItem.model });
 
 			this.indexes[item.id] = i++;
 			itemsToInsert.push(viewItem);
@@ -91,11 +88,11 @@ export class HeightMap extends EventEmitter {
 
 	// Contiguous items
 	public onRemoveItems(iterator: INextIterator<string>): void {
-		var itemId: string;
-		var viewItem: IViewItem;
-		var startIndex: number = null;
-		var i: number;
-		var sizeDiff = 0;
+		let itemId: string;
+		let viewItem: IViewItem;
+		let startIndex: number | null = null;
+		let i: number;
+		let sizeDiff = 0;
 
 		while (itemId = iterator.next()) {
 			i = this.indexes[itemId];
@@ -134,17 +131,17 @@ export class HeightMap extends EventEmitter {
 	}
 
 	public onRefreshItemSet(items: Item[]): void {
-		var sortedItems = items.sort((a, b) => this.indexes[a.id] - this.indexes[b.id]);
+		let sortedItems = items.sort((a, b) => this.indexes[a.id] - this.indexes[b.id]);
 		this.onRefreshItems(new ArrayIterator(sortedItems));
 	}
 
 	// Ordered, but not necessarily contiguous items
 	public onRefreshItems(iterator: INextIterator<Item>): void {
-		var item: Item;
-		var viewItem: IViewItem;
-		var newHeight: number;
-		var i: number, j: number = null;
-		var cummDiff = 0;
+		let item: Item;
+		let viewItem: IViewItem;
+		let newHeight: number;
+		let i: number, j: number | null = null;
+		let cummDiff = 0;
 
 		while (item = iterator.next()) {
 			i = this.indexes[item.id];
@@ -189,16 +186,16 @@ export class HeightMap extends EventEmitter {
 	public withItemsInRange(start: number, end: number, fn: (item: string) => void): void {
 		start = this.indexAt(start);
 		end = this.indexAt(end);
-		for (var i = start; i <= end; i++) {
+		for (let i = start; i <= end; i++) {
 			fn(this.heightMap[i].model.id);
 		}
 	}
 
 	public indexAt(position: number): number {
-		var left = 0;
-		var right = this.heightMap.length;
-		var center: number;
-		var item: IViewItem;
+		let left = 0;
+		let right = this.heightMap.length;
+		let center: number;
+		let item: IViewItem;
 
 		// Binary search
 		while (left < right) {

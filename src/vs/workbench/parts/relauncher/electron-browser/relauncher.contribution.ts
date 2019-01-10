@@ -3,66 +3,74 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-'use strict';
-
-import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { IDisposable, dispose, Disposable } from 'vs/base/common/lifecycle';
 import { IWorkbenchContributionsRegistry, IWorkbenchContribution, Extensions as WorkbenchExtensions } from 'vs/workbench/common/contributions';
 import { Registry } from 'vs/platform/registry/common/platform';
-import { IMessageService } from 'vs/platform/message/common/message';
-import { IPreferencesService } from 'vs/workbench/parts/preferences/common/preferences';
 import { IWindowsService, IWindowService, IWindowsConfiguration } from 'vs/platform/windows/common/windows';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { localize } from 'vs/nls';
 import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 import { IWorkspaceContextService, WorkbenchState } from 'vs/platform/workspace/common/workspace';
-import { IExtensionService } from 'vs/platform/extensions/common/extensions';
+import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { RunOnceScheduler } from 'vs/base/common/async';
-import URI from 'vs/base/common/uri';
+import { URI } from 'vs/base/common/uri';
 import { isEqual } from 'vs/base/common/resources';
-import { isLinux } from 'vs/base/common/platform';
+import { isLinux, isMacintosh, isWindows } from 'vs/base/common/platform';
+import { LifecyclePhase } from 'vs/platform/lifecycle/common/lifecycle';
+import { IDialogService } from 'vs/platform/dialogs/common/dialogs';
+import { equals } from 'vs/base/common/objects';
 
 interface IConfiguration extends IWindowsConfiguration {
 	update: { channel: string; };
 	telemetry: { enableCrashReporter: boolean };
+	keyboard: { touchbar: { enabled: boolean } };
+	workbench: { tree: { horizontalScrolling: boolean } };
+	files: { useExperimentalFileWatcher: boolean, watcherExclude: object };
 }
 
-export class SettingsChangeRelauncher implements IWorkbenchContribution {
-
-	private toDispose: IDisposable[] = [];
+export class SettingsChangeRelauncher extends Disposable implements IWorkbenchContribution {
 
 	private titleBarStyle: 'native' | 'custom';
 	private nativeTabs: boolean;
+	private nativeFullScreen: boolean;
+	private clickThroughInactive: boolean;
 	private updateChannel: string;
 	private enableCrashReporter: boolean;
+	private touchbarEnabled: boolean;
+	private treeHorizontalScrolling: boolean;
+	private windowsSmoothScrollingWorkaround: boolean;
+	private experimentalFileWatcher: boolean;
+	private fileWatcherExclude: object;
 
-	private firstFolderResource: URI;
+	private firstFolderResource?: URI;
 	private extensionHostRestarter: RunOnceScheduler;
 
 	private onDidChangeWorkspaceFoldersUnbind: IDisposable;
 
 	constructor(
-		@IWindowsService private windowsService: IWindowsService,
-		@IWindowService private windowService: IWindowService,
-		@IConfigurationService private configurationService: IConfigurationService,
-		@IPreferencesService private preferencesService: IPreferencesService,
-		@IEnvironmentService private envService: IEnvironmentService,
-		@IMessageService private messageService: IMessageService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IExtensionService private extensionService: IExtensionService
+		@IWindowsService private readonly windowsService: IWindowsService,
+		@IWindowService private readonly windowService: IWindowService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IEnvironmentService private readonly envService: IEnvironmentService,
+		@IDialogService private readonly dialogService: IDialogService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IExtensionService private readonly extensionService: IExtensionService
 	) {
+		super();
+
 		const workspace = this.contextService.getWorkspace();
-		this.firstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : void 0;
+		this.firstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : undefined;
 		this.extensionHostRestarter = new RunOnceScheduler(() => this.extensionService.restartExtensionHost(), 10);
 
-		this.onConfigurationChange(configurationService.getConfiguration<IConfiguration>(), false);
+		this.onConfigurationChange(configurationService.getValue<IConfiguration>(), false);
 		this.handleWorkbenchState();
 
 		this.registerListeners();
 	}
 
 	private registerListeners(): void {
-		this.toDispose.push(this.configurationService.onDidChangeConfiguration(e => this.onConfigurationChange(this.configurationService.getConfiguration<IConfiguration>(), true)));
-		this.toDispose.push(this.contextService.onDidChangeWorkbenchState(() => setTimeout(() => this.handleWorkbenchState())));
+		this._register(this.configurationService.onDidChangeConfiguration(e => this.onConfigurationChange(this.configurationService.getValue<IConfiguration>(), true)));
+		this._register(this.contextService.onDidChangeWorkbenchState(() => setTimeout(() => this.handleWorkbenchState())));
 	}
 
 	private onConfigurationChange(config: IConfiguration, notify: boolean): void {
@@ -74,9 +82,21 @@ export class SettingsChangeRelauncher implements IWorkbenchContribution {
 			changed = true;
 		}
 
-		// Native tabs
-		if (config.window && typeof config.window.nativeTabs === 'boolean' && config.window.nativeTabs !== this.nativeTabs) {
+		// macOS: Native tabs
+		if (isMacintosh && config.window && typeof config.window.nativeTabs === 'boolean' && config.window.nativeTabs !== this.nativeTabs) {
 			this.nativeTabs = config.window.nativeTabs;
+			changed = true;
+		}
+
+		// macOS: Native fullscreen
+		if (isMacintosh && config.window && typeof config.window.nativeFullScreen === 'boolean' && config.window.nativeFullScreen !== this.nativeFullScreen) {
+			this.nativeFullScreen = config.window.nativeFullScreen;
+			changed = true;
+		}
+
+		// macOS: Click through (accept first mouse)
+		if (isMacintosh && config.window && typeof config.window.clickThroughInactive === 'boolean' && config.window.clickThroughInactive !== this.clickThroughInactive) {
+			this.clickThroughInactive = config.window.clickThroughInactive;
 			changed = true;
 		}
 
@@ -89,6 +109,38 @@ export class SettingsChangeRelauncher implements IWorkbenchContribution {
 		// Crash reporter
 		if (config.telemetry && typeof config.telemetry.enableCrashReporter === 'boolean' && config.telemetry.enableCrashReporter !== this.enableCrashReporter) {
 			this.enableCrashReporter = config.telemetry.enableCrashReporter;
+			changed = true;
+		}
+
+		// Experimental File Watcher
+		if (config.files && typeof config.files.useExperimentalFileWatcher === 'boolean' && config.files.useExperimentalFileWatcher !== this.experimentalFileWatcher) {
+			this.experimentalFileWatcher = config.files.useExperimentalFileWatcher;
+			changed = true;
+		}
+
+		// File Watcher Excludes (only if in folder workspace mode)
+		if (!this.experimentalFileWatcher && this.contextService.getWorkbenchState() === WorkbenchState.FOLDER) {
+			if (config.files && typeof config.files.watcherExclude === 'object' && !equals(config.files.watcherExclude, this.fileWatcherExclude)) {
+				this.fileWatcherExclude = config.files.watcherExclude;
+				changed = true;
+			}
+		}
+
+		// macOS: Touchbar config
+		if (isMacintosh && config.keyboard && config.keyboard.touchbar && typeof config.keyboard.touchbar.enabled === 'boolean' && config.keyboard.touchbar.enabled !== this.touchbarEnabled) {
+			this.touchbarEnabled = config.keyboard.touchbar.enabled;
+			changed = true;
+		}
+
+		// Tree horizontal scrolling support
+		if (config.workbench && config.workbench.tree && typeof config.workbench.tree.horizontalScrolling === 'boolean' && config.workbench.tree.horizontalScrolling !== this.treeHorizontalScrolling) {
+			this.treeHorizontalScrolling = config.workbench.tree.horizontalScrolling;
+			changed = true;
+		}
+
+		// Windows: smooth scrolling workaround
+		if (isWindows && config.window && typeof config.window.smoothScrollingWorkaround === 'boolean' && config.window.smoothScrollingWorkaround !== this.windowsSmoothScrollingWorkaround) {
+			this.windowsSmoothScrollingWorkaround = config.window.smoothScrollingWorkaround;
 			changed = true;
 		}
 
@@ -110,7 +162,7 @@ export class SettingsChangeRelauncher implements IWorkbenchContribution {
 
 			// Update our known first folder path if we entered workspace
 			const workspace = this.contextService.getWorkspace();
-			this.firstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : void 0;
+			this.firstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : undefined;
 
 			// Install workspace folder listener
 			if (!this.onDidChangeWorkspaceFoldersUnbind) {
@@ -128,7 +180,7 @@ export class SettingsChangeRelauncher implements IWorkbenchContribution {
 		const workspace = this.contextService.getWorkspace();
 
 		// Restart extension host if first root folder changed (impact on deprecated workspace.rootPath API)
-		const newFirstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : void 0;
+		const newFirstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : undefined;
 		if (!isEqual(this.firstFolderResource, newFirstFolderResource, !isLinux)) {
 			this.firstFolderResource = newFirstFolderResource;
 
@@ -139,28 +191,22 @@ export class SettingsChangeRelauncher implements IWorkbenchContribution {
 	private doConfirm(message: string, detail: string, primaryButton: string, confirmed: () => void): void {
 		this.windowService.isFocused().then(focused => {
 			if (focused) {
-				const confirm = this.messageService.confirmSync({
+				return this.dialogService.confirm({
 					type: 'info',
 					message,
 					detail,
 					primaryButton
+				}).then(res => {
+					if (res.confirmed) {
+						confirmed();
+					}
 				});
-
-				if (confirm) {
-					confirmed();
-				}
 			}
+
+			return undefined;
 		});
-	}
-
-	public getId(): string {
-		return 'workbench.relauncher';
-	}
-
-	public dispose(): void {
-		this.toDispose = dispose(this.toDispose);
 	}
 }
 
-const workbenchRegistry = <IWorkbenchContributionsRegistry>Registry.as(WorkbenchExtensions.Workbench);
-workbenchRegistry.registerWorkbenchContribution(SettingsChangeRelauncher);
+const workbenchRegistry = Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench);
+workbenchRegistry.registerWorkbenchContribution(SettingsChangeRelauncher, LifecyclePhase.Restored);

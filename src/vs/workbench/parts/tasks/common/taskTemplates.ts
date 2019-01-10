@@ -2,13 +2,12 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-'use strict';
 
 import * as nls from 'vs/nls';
 
-import { IPickOpenEntry } from 'vs/platform/quickOpen/common/quickOpen';
+import { IQuickPickItem } from 'vs/platform/quickinput/common/quickInput';
 
-export interface TaskEntry extends IPickOpenEntry {
+export interface TaskEntry extends IQuickPickItem {
 	sort?: string;
 	autoDetect: boolean;
 	content: string;
@@ -114,7 +113,7 @@ const maven: TaskEntry = {
 		'\t\t\t"group": "build"',
 		'\t\t},',
 		'\t\t{',
-		'\t\t\t"taskName": "test",',
+		'\t\t\t"label": "test",',
 		'\t\t\t"type": "shell",',
 		'\t\t\t"command": "mvn -B test",',
 		'\t\t\t"group": "test"',
@@ -124,10 +123,16 @@ const maven: TaskEntry = {
 	].join('\n')
 };
 
-export let templates: TaskEntry[] = [dotnetBuild, msbuild, maven].sort((a, b) => {
-	return (a.sort || a.label).localeCompare(b.sort || b.label);
-});
-templates.push(command);
+let _templates: TaskEntry[] | null = null;
+export function getTemplates(): TaskEntry[] {
+	if (!_templates) {
+		_templates = [dotnetBuild, msbuild, maven].sort((a, b) => {
+			return (a.sort || a.label).localeCompare(b.sort || b.label);
+		});
+		_templates.push(command);
+	}
+	return _templates;
+}
 
 
 /** Version 1.0 templates

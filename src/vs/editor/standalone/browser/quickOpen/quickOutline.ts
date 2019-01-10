@@ -3,36 +3,35 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-
-'use strict';
-
 import 'vs/css!./quickOutline';
 import * as nls from 'vs/nls';
+import { CancellationToken } from 'vs/base/common/cancellation';
 import { matchesFuzzy } from 'vs/base/common/filters';
+import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
 import * as strings from 'vs/base/common/strings';
-import { TPromise } from 'vs/base/common/winjs.base';
 import { IContext, IHighlight, QuickOpenEntryGroup, QuickOpenModel } from 'vs/base/parts/quickopen/browser/quickOpenModel';
 import { IAutoFocus, Mode } from 'vs/base/parts/quickopen/common/quickOpen';
-import { ICommonCodeEditor, ScrollType } from 'vs/editor/common/editorCommon';
+import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
+import { ServicesAccessor, registerEditorAction } from 'vs/editor/browser/editorExtensions';
+import { IRange, Range } from 'vs/editor/common/core/range';
+import { ScrollType } from 'vs/editor/common/editorCommon';
 import { EditorContextKeys } from 'vs/editor/common/editorContextKeys';
-import { SymbolInformation, DocumentSymbolProviderRegistry, symbolKindToCssClass, IOutline } from 'vs/editor/common/modes';
-import { BaseEditorQuickOpenAction, IDecorator } from './editorQuickOpen';
-import { getDocumentSymbols } from 'vs/editor/contrib/quickOpen/common/quickOpen';
-import { editorAction, ServicesAccessor } from 'vs/editor/common/editorCommonExtensions';
-import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import { Range } from 'vs/editor/common/core/range';
+import { DocumentSymbol, DocumentSymbolProviderRegistry, symbolKindToCssClass } from 'vs/editor/common/modes';
+import { getDocumentSymbols } from 'vs/editor/contrib/quickOpen/quickOpen';
+import { BaseEditorQuickOpenAction, IDecorator } from 'vs/editor/standalone/browser/quickOpen/editorQuickOpen';
+import { KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
 
 let SCOPE_PREFIX = ':';
 
-class SymbolEntry extends QuickOpenEntryGroup {
+export class SymbolEntry extends QuickOpenEntryGroup {
 	private name: string;
 	private type: string;
 	private description: string;
 	private range: Range;
-	private editor: ICommonCodeEditor;
+	private editor: ICodeEditor;
 	private decorator: IDecorator;
 
-	constructor(name: string, type: string, description: string, range: Range, highlights: IHighlight[], editor: ICommonCodeEditor, decorator: IDecorator) {
+	constructor(name: string, type: string, description: string, range: Range, highlights: IHighlight[], editor: ICodeEditor, decorator: IDecorator) {
 		super();
 
 		this.name = name;
@@ -109,7 +108,6 @@ class SymbolEntry extends QuickOpenEntryGroup {
 	}
 }
 
-@editorAction
 export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 
 	constructor() {
@@ -120,7 +118,8 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 			precondition: EditorContextKeys.hasDocumentSymbolProvider,
 			kbOpts: {
 				kbExpr: EditorContextKeys.focus,
-				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_O
+				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KEY_O,
+				weight: KeybindingWeight.EditorContrib
 			},
 			menuOpts: {
 				group: 'navigation',
@@ -129,7 +128,7 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 		});
 	}
 
-	public run(accessor: ServicesAccessor, editor: ICommonCodeEditor): TPromise<void> {
+	public run(accessor: ServicesAccessor, editor: ICodeEditor): Promise<void> {
 
 		let model = editor.getModel();
 
@@ -138,16 +137,16 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 		}
 
 		// Resolve outline
-		return getDocumentSymbols(model).then((result: IOutline) => {
-			if (result.entries.length === 0) {
+		return getDocumentSymbols(model, true, CancellationToken.None).then((result: DocumentSymbol[]) => {
+			if (result.length === 0) {
 				return;
 			}
 
-			this._run(editor, result.entries);
+			this._run(editor, result);
 		});
 	}
 
-	private _run(editor: ICommonCodeEditor, result: SymbolInformation[]): void {
+	private _run(editor: ICodeEditor, result: DocumentSymbol[]): void {
 		this._show(this.getController(editor), {
 			getModel: (value: string): QuickOpenModel => {
 				return new QuickOpenModel(this.toQuickOpenEntries(editor, result, value));
@@ -167,7 +166,11 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 		});
 	}
 
-	private toQuickOpenEntries(editor: ICommonCodeEditor, flattened: SymbolInformation[], searchValue: string): SymbolEntry[] {
+	private symbolEntry(name: string, type: string, description: string, range: IRange, highlights: IHighlight[], editor: ICodeEditor, decorator: IDecorator): SymbolEntry {
+		return new SymbolEntry(name, type, description, Range.lift(range), highlights, editor, decorator);
+	}
+
+	private toQuickOpenEntries(editor: ICodeEditor, flattened: DocumentSymbol[], searchValue: string): SymbolEntry[] {
 		const controller = this.getController(editor);
 
 		let results: SymbolEntry[] = [];
@@ -178,8 +181,7 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 			normalizedSearchValue = normalizedSearchValue.substr(SCOPE_PREFIX.length);
 		}
 
-		for (let i = 0; i < flattened.length; i++) {
-			let element = flattened[i];
+		for (const element of flattened) {
 			let label = strings.trim(element.name);
 
 			// Check for meatch
@@ -187,13 +189,13 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 			if (highlights) {
 
 				// Show parent scope as description
-				let description: string = null;
+				let description: string | null = null;
 				if (element.containerName) {
 					description = element.containerName;
 				}
 
 				// Add
-				results.push(new SymbolEntry(label, symbolKindToCssClass(element.kind), description, Range.lift(element.location.range), highlights, editor, controller));
+				results.push(this.symbolEntry(label, symbolKindToCssClass(element.kind), description, element.range, highlights, editor, controller));
 			}
 		}
 
@@ -208,8 +210,8 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 
 		// Mark all type groups
 		if (results.length > 0 && searchValue.indexOf(SCOPE_PREFIX) === 0) {
-			let currentType: string = null;
-			let currentResult: SymbolEntry = null;
+			let currentType: string | null = null;
+			let currentResult: SymbolEntry | null = null;
 			let typeCounter = 0;
 
 			for (let i = 0; i < results.length; i++) {
@@ -314,3 +316,5 @@ export class QuickOutlineAction extends BaseEditorQuickOpenAction {
 		return elementARange.startLineNumber - elementBRange.startLineNumber;
 	}
 }
+
+registerEditorAction(QuickOutlineAction);

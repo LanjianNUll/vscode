@@ -140,6 +140,15 @@
 		],
 		"description": "Set Timeout Function"
 	},
+	"Set Interval Function": {
+		"prefix": "setinterval",
+		"body": [
+			"setInterval(() => {",
+			"\t$0",
+			"}, ${1:interval});"
+		],
+		"description": "Set Interval Function"
+	},
 	"Import external module.": {
 		"prefix": "import statement",
 		"body": [
@@ -160,5 +169,29 @@
 			"//#endregion"
 		],
 		"description": "Folding Region End"
+	},
+	"Log to the console": {
+		"prefix": "log",
+		"body": [
+			"console.log($1);",
+			"$0"
+		],
+		"description": "Log to the console"
+	},
+	"Log warning to console": {
+		"prefix": "warn",
+		"body": [
+			"console.warn($1);",
+			"$0"
+		],
+		"description": "Log warning to the console"
+	},
+	"Log error to console": {
+		"prefix": "error",
+		"body": [
+			"console.error($1);",
+			"$0"
+		],
+		"description": "Log error to the console"
 	}
 }

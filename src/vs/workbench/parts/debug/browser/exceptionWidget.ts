@@ -6,10 +6,9 @@
 import 'vs/css!../browser/media/exceptionWidget';
 import * as nls from 'vs/nls';
 import * as dom from 'vs/base/browser/dom';
-import { ZoneWidget } from 'vs/editor/contrib/zoneWidget/browser/zoneWidget';
+import { ZoneWidget } from 'vs/editor/contrib/zoneWidget/zoneWidget';
 import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
-import { IContextViewService } from 'vs/platform/contextview/browser/contextView';
-import { IDebugService, IExceptionInfo } from 'vs/workbench/parts/debug/common/debug';
+import { IExceptionInfo } from 'vs/workbench/parts/debug/common/debug';
 import { RunOnceScheduler } from 'vs/base/common/async';
 import { IThemeService, ITheme } from 'vs/platform/theme/common/themeService';
 import { Color } from 'vs/base/common/color';
@@ -27,11 +26,9 @@ export class ExceptionWidget extends ZoneWidget {
 
 	private _backgroundColor: Color;
 
-	constructor(editor: ICodeEditor, private exceptionInfo: IExceptionInfo, private lineNumber: number,
-		@IContextViewService private contextViewService: IContextViewService,
-		@IDebugService private debugService: IDebugService,
+	constructor(editor: ICodeEditor, private exceptionInfo: IExceptionInfo,
 		@IThemeService themeService: IThemeService,
-		@IInstantiationService private instantiationService: IInstantiationService
+		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
 		super(editor, { showFrame: true, showArrow: true, frameWidth: 1, className: 'exception-widget-container' });
 
@@ -49,7 +46,7 @@ export class ExceptionWidget extends ZoneWidget {
 
 	private _applyTheme(theme: ITheme): void {
 		this._backgroundColor = theme.getColor(debugExceptionWidgetBackground);
-		let frameColor = theme.getColor(debugExceptionWidgetBorder);
+		const frameColor = theme.getColor(debugExceptionWidgetBorder);
 		this.style({
 			arrowColor: frameColor,
 			frameColor: frameColor

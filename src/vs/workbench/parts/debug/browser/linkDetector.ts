@@ -3,15 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import uri from 'vs/base/common/uri';
+import { URI as uri } from 'vs/base/common/uri';
 import { isMacintosh } from 'vs/base/common/platform';
-import * as errors from 'vs/base/common/errors';
 import { IMouseEvent, StandardMouseEvent } from 'vs/base/browser/mouseEvent';
 import * as nls from 'vs/nls';
-import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
-import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IEditorService, SIDE_GROUP, ACTIVE_GROUP } from 'vs/workbench/services/editor/common/editorService';
 
 export class LinkDetector {
+	private static readonly MAX_LENGTH = 500;
 	private static FILE_LOCATION_PATTERNS: RegExp[] = [
 		// group 0: full path with line and column
 		// group 1: full path without line and column, matched by `*.*` in the end to work only on paths with extensions in the end (s.t. node:10352 would not match)
@@ -23,8 +22,7 @@ export class LinkDetector {
 	];
 
 	constructor(
-		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService
+		@IEditorService private readonly editorService: IEditorService
 	) {
 		// noop
 	}
@@ -35,16 +33,19 @@ export class LinkDetector {
 	 * 'onclick' event is attached to all anchored links that opens them in the editor.
 	 * If no links were detected, returns the original string.
 	 */
-	public handleLinks(text: string): HTMLElement | string {
-		let linkContainer: HTMLElement;
+	handleLinks(text: string): HTMLElement | string {
+		if (text.length > LinkDetector.MAX_LENGTH) {
+			return text;
+		}
 
+		let linkContainer: HTMLElement | undefined;
 		for (let pattern of LinkDetector.FILE_LOCATION_PATTERNS) {
 			pattern.lastIndex = 0; // the holy grail of software development
 			let lastMatchIndex = 0;
 
 			let match = pattern.exec(text);
 			while (match !== null) {
-				let resource: uri = null;
+				let resource: uri | null = null;
 				if (!resource) {
 					match = pattern.exec(text);
 					continue;
@@ -66,7 +67,7 @@ export class LinkDetector {
 				linkContainer.appendChild(link);
 				const line = Number(match[3]);
 				const column = match[4] ? Number(match[4]) : undefined;
-				link.onclick = (e) => this.onLinkClick(new StandardMouseEvent(e), resource, line, column);
+				link.onclick = (e) => this.onLinkClick(new StandardMouseEvent(e), resource!, line, column);
 
 				lastMatchIndex = pattern.lastIndex;
 				const currentMatch = match;
@@ -94,6 +95,7 @@ export class LinkDetector {
 		}
 
 		event.preventDefault();
+		const group = event.ctrlKey || event.metaKey ? SIDE_GROUP : ACTIVE_GROUP;
 
 		this.editorService.openEditor({
 			resource,
@@ -103,6 +105,6 @@ export class LinkDetector {
 					startColumn: column
 				}
 			}
-		}, event.ctrlKey || event.metaKey).done(null, errors.onUnexpectedError);
+		}, group);
 	}
 }
